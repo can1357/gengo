@@ -77,6 +77,27 @@ var reservedIdentifiers = map[string]struct{}{
 	"import":      {},
 	"return":      {},
 	"var":         {},
+	"error":       {},
+	"string":      {},
+	"true":        {},
+	"false":       {},
+	"iota":        {},
+	"nil":         {},
+	"append":      {},
+	"cap":         {},
+	"close":       {},
+	"complex":     {},
+	"copy":        {},
+	"delete":      {},
+	"imag":        {},
+	"len":         {},
+	"make":        {},
+	"new":         {},
+	"panic":       {},
+	"print":       {},
+	"println":     {},
+	"real":        {},
+	"recover":     {},
 }
 
 // Default mappings of builtin C types.
@@ -176,6 +197,13 @@ func WithInferredMethods(rules []MethodInferenceRule) BasicProviderOption {
 		p.InferredMethods = append(p.InferredMethods, rules...)
 	}
 }
+func WithForcedSyntethic(names ...string) BasicProviderOption {
+	return func(p *BasicProvider) {
+		for _, name := range names {
+			p.ForcedSyntethic[name] = struct{}{}
+		}
+	}
+}
 
 type MethodInferenceRule struct {
 	Name     string
@@ -187,6 +215,7 @@ type BasicProvider struct {
 	Builtins        map[string]Identifier
 	RemovedPrefixes []string
 	InferredMethods []MethodInferenceRule
+	ForcedSyntethic map[string]struct{}
 }
 
 func NewBasicProvider(opt ...BasicProviderOption) *BasicProvider {
@@ -194,6 +223,7 @@ func NewBasicProvider(opt ...BasicProviderOption) *BasicProvider {
 		Types:           map[string]TypeRef{},
 		Builtins:        map[string]Identifier{},
 		InferredMethods: []MethodInferenceRule{},
+		ForcedSyntethic: map[string]struct{}{},
 	}
 	for k, v := range defaultBuiltinMap {
 		dc.Builtins[k] = v
@@ -245,6 +275,9 @@ func (p *BasicProvider) ConvertArgName(name string) string {
 	return name
 }
 func (p *BasicProvider) ForceSyntethic(name string) bool {
+	if _, ok := p.ForcedSyntethic[name]; ok {
+		return true
+	}
 	return false
 }
 func (p *BasicProvider) ConvertQualType(q string) dst.Expr {
