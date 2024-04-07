@@ -72,11 +72,13 @@ func LoadLibraryEmbed(data []byte) (LoadedLibrary, error) {
 		}
 	}
 	hash := sha1.Sum(data)
-	filename := hex.EncodeToString(hash[:]) + ".gengo.so"
-	path := cache + string(os.PathSeparator) + filename
-	err = os.WriteFile(path, data, 0644)
-	if err != nil {
-		return nil, err
+	name := hex.EncodeToString(hash[:]) + ".gengo.so"
+	path := cache + string(os.PathSeparator) + name
+	if stat, err := os.Stat(path); err != nil || stat.Size() != int64(len(data)) {
+		err = os.WriteFile(path, data, 0644)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return LoadLibrary(path)
 }
