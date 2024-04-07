@@ -66,19 +66,23 @@ func (l *Library) LoadEmbed(data []byte) (LoadedLibrary, error) {
 func (l *Library) Get() (LoadedLibrary, error) {
 	return l.LoadFrom(l.Name)
 }
-func (l *Library) Import(name string) *Proc {
-	return &Proc{
+func (l *Library) Import(name string) Proc {
+	return Proc{
 		library: l,
 		name:    name,
 	}
 }
+func (l *Library) ImportNow(name string) PreloadProc {
+	i := l.Import(name)
+	return PreloadProc(i.Addr())
+}
 
 var getTmpDir = sync.OnceValue(func() string {
-	if exec, err := os.Executable(); err == nil {
-		return filepath.Dir(exec) + string(os.PathSeparator)
-	}
 	if cache, err := os.UserCacheDir(); err == nil {
 		return cache + string(os.PathSeparator)
+	}
+	if exec, err := os.Executable(); err == nil {
+		return filepath.Dir(exec) + string(os.PathSeparator)
 	}
 	return os.TempDir() + string(os.PathSeparator)
 })

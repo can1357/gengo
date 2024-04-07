@@ -180,3 +180,36 @@ func (m Module) String() string {
 func (m Module) Print() {
 	m.Fprint(os.Stdout)
 }
+func (m Module) GetInitFunc() *dst.FuncDecl {
+	for _, decl := range m.Decls {
+		if f, ok := decl.(*dst.FuncDecl); ok && f.Name.Name == "init" {
+			return f
+		}
+	}
+	return nil
+}
+func (m Module) AddInitFunc() *dst.FuncDecl {
+	i := m.GetInitFunc()
+	if i == nil {
+		i = &dst.FuncDecl{
+			Name: dst.NewIdent("init"),
+			Type: &dst.FuncType{},
+			Body: &dst.BlockStmt{},
+			Decs: dst.FuncDeclDecorations{
+				NodeDecs: dst.NodeDecs{
+					Before: dst.NewLine,
+					After:  dst.NewLine,
+					Start: []string{
+						"//  Gengo init function.",
+					},
+				},
+			},
+		}
+		m.Decls = append(m.Decls, i)
+	}
+	return i
+}
+func (m Module) OnInit(stmts ...dst.Stmt) {
+	f := m.AddInitFunc()
+	f.Body.List = append(f.Body.List, stmts...)
+}

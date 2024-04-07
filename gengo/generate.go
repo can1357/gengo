@@ -370,34 +370,72 @@ func (mod Module) EmitStruct(n *clang.RecordDecl, layouts *clang.LayoutMap, defe
 	})
 }
 
+const PRELOAD = true
+
 func (mod Module) EmitFunction(n *clang.FunctionDecl) {
 	// Add the import.
 	// - var __imp_func = Import("func")
 	//
 	name := mod.Parent.NameFunc(n.Name)
 	importName := "__imp_" + n.Name
-	mod.Decls = append(mod.Decls, &dst.GenDecl{
-		Tok: token.VAR,
-		Specs: []dst.Spec{
-			&dst.ValueSpec{
-				Names: []*dst.Ident{dst.NewIdent(importName)},
-				Values: []dst.Expr{
-					&dst.CallExpr{
-						Fun: &dst.SelectorExpr{
-							X:   dst.NewIdent("GengoLibrary"),
-							Sel: dst.NewIdent("Import"),
+
+	if PRELOAD {
+		mod.Decls = append(mod.Decls, &dst.GenDecl{
+			Tok: token.VAR,
+			Specs: []dst.Spec{
+				&dst.ValueSpec{
+					Names: []*dst.Ident{dst.NewIdent(importName)},
+					Type: &dst.SelectorExpr{
+						X:   dst.NewIdent("gengort"),
+						Sel: dst.NewIdent("PreloadProc"),
+					},
+				},
+			},
+		})
+		mod.OnInit(&dst.AssignStmt{
+			Lhs: []dst.Expr{
+				dst.NewIdent(importName),
+			},
+			Tok: token.ASSIGN,
+			Rhs: []dst.Expr{
+				&dst.CallExpr{
+					Fun: &dst.SelectorExpr{
+						X:   dst.NewIdent("GengoLibrary"),
+						Sel: dst.NewIdent("ImportNow"),
+					},
+					Args: []dst.Expr{
+						&dst.BasicLit{
+							Kind:  token.STRING,
+							Value: strconv.Quote(n.MangledName),
 						},
-						Args: []dst.Expr{
-							&dst.BasicLit{
-								Kind:  token.STRING,
-								Value: strconv.Quote(n.MangledName),
+					},
+				},
+			},
+		})
+	} else {
+		mod.Decls = append(mod.Decls, &dst.GenDecl{
+			Tok: token.VAR,
+			Specs: []dst.Spec{
+				&dst.ValueSpec{
+					Names: []*dst.Ident{dst.NewIdent(importName)},
+					Values: []dst.Expr{
+						&dst.CallExpr{
+							Fun: &dst.SelectorExpr{
+								X:   dst.NewIdent("GengoLibrary"),
+								Sel: dst.NewIdent("Import"),
+							},
+							Args: []dst.Expr{
+								&dst.BasicLit{
+									Kind:  token.STRING,
+									Value: strconv.Quote(n.MangledName),
+								},
 							},
 						},
 					},
 				},
 			},
-		},
-	})
+		})
+	}
 
 	// Get the result type.
 	var result, result2 dst.Expr
@@ -435,8 +473,13 @@ func (mod Module) EmitFunction(n *clang.FunctionDecl) {
 	copyDecoration(&decl.Decs.NodeDecs, n)
 	mod.Decls = append(mod.Decls, decl)
 	callExpr := &dst.CallExpr{
-		Fun: &dst.SelectorExpr{
-			X: dst.NewIdent(importName),
+		Args: []dst.Expr{
+			&dst.CallExpr{
+				Fun: &dst.SelectorExpr{
+					X:   dst.NewIdent(importName),
+					Sel: dst.NewIdent("Addr"),
+				},
+			},
 		},
 	}
 
@@ -458,7 +501,10 @@ func (mod Module) EmitFunction(n *clang.FunctionDecl) {
 			},
 		})
 	}
-	callExpr.Fun.(*dst.SelectorExpr).Sel = dst.NewIdent("Call" + strconv.Itoa(len(callExpr.Args)))
+	callExpr.Fun = &dst.SelectorExpr{
+		X:   dst.NewIdent("gengort"),
+		Sel: dst.NewIdent("CCall" + strconv.Itoa(len(callExpr.Args)-1)),
+	}
 
 	// Infer the method receiver.
 	rcv, mnameNew := mod.Parent.InferMethod(n.Name)
@@ -633,35 +679,5 @@ func (mod Module) EmitFrom(ast clang.Node, layouts *clang.LayoutMap) {
 			},
 		})
 	}
-
-	// Find or create init
-	var initFunc *dst.FuncDecl
-	for _, decl := range mod.Decls {
-		if f, ok := decl.(*dst.FuncDecl); ok && f.Name.Name == "init" {
-			initFunc = f
-			break
-		}
-	}
-	if initFunc == nil {
-		initFunc = &dst.FuncDecl{
-			Name: dst.NewIdent("init"),
-			Type: &dst.FuncType{},
-			Body: &dst.BlockStmt{},
-			Decs: dst.FuncDeclDecorations{
-				NodeDecs: dst.NodeDecs{
-					Before: dst.NewLine,
-					After:  dst.NewLine,
-					Start: []string{
-						"//",
-						"// Validates the ABI of the generated code against the current runtime.",
-						"//",
-					},
-				},
-			},
-		}
-		mod.Decls = append(mod.Decls, initFunc)
-	}
-
-	// Add the validation calls to the init function.
-	initFunc.Body.List = append(initFunc.Body.List, validatorBody...)
+	mod.OnInit(validatorBody...)
 }
