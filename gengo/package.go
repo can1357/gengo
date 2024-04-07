@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/can1357/gengo/clang"
 	"github.com/dave/dst"
@@ -91,6 +92,46 @@ func (p *Package) Upsert(module string) Module {
 				},
 			},
 		})
+
+		// If this is the first module, add some runtime details.
+		if len(p.Files) == 1 {
+			// const GengoLibraryName = "module"
+			f.Decls = append(f.Decls, &dst.GenDecl{
+				Tok: token.CONST,
+				Specs: []dst.Spec{
+					&dst.ValueSpec{
+						Names: []*dst.Ident{
+							dst.NewIdent("GengoLibraryName"),
+						},
+						Values: []dst.Expr{
+							&dst.BasicLit{Kind: token.STRING, Value: strconv.Quote(p.Name)},
+						},
+					},
+				},
+			})
+			// var GengoLibrary = gengort.NewLibrary(GengoLibraryName)
+			f.Decls = append(f.Decls, &dst.GenDecl{
+				Tok: token.VAR,
+				Specs: []dst.Spec{
+					&dst.ValueSpec{
+						Names: []*dst.Ident{
+							dst.NewIdent("GengoLibrary"),
+						},
+						Values: []dst.Expr{
+							&dst.CallExpr{
+								Fun: &dst.SelectorExpr{
+									X:   dst.NewIdent("gengort"),
+									Sel: dst.NewIdent("NewLibrary"),
+								},
+								Args: []dst.Expr{
+									dst.NewIdent("GengoLibraryName"),
+								},
+							},
+						},
+					},
+				},
+			})
+		}
 	}
 	return Module{p, f}
 }

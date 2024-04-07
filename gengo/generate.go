@@ -375,7 +375,7 @@ func (mod Module) EmitFunction(n *clang.FunctionDecl) {
 	// - var __imp_func = Import("func")
 	//
 	name := mod.Parent.NameFunc(n.Name)
-	importName := "__imp_" + name
+	importName := "__imp_" + n.Name
 	mod.Decls = append(mod.Decls, &dst.GenDecl{
 		Tok: token.VAR,
 		Specs: []dst.Spec{
@@ -384,14 +384,10 @@ func (mod Module) EmitFunction(n *clang.FunctionDecl) {
 				Values: []dst.Expr{
 					&dst.CallExpr{
 						Fun: &dst.SelectorExpr{
-							X:   dst.NewIdent("gengort"),
+							X:   dst.NewIdent("GengoLibrary"),
 							Sel: dst.NewIdent("Import"),
 						},
 						Args: []dst.Expr{
-							&dst.BasicLit{
-								Kind:  token.STRING,
-								Value: strconv.Quote(mod.Parent.Name),
-							},
 							&dst.BasicLit{
 								Kind:  token.STRING,
 								Value: strconv.Quote(n.MangledName),

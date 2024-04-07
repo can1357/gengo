@@ -1,53 +1,40 @@
 package gengort
 
 import (
-	"sync"
 	"sync/atomic"
 )
 
-var libRegistry = make(map[string]Library)
-var libMutex sync.Mutex
-
-func refLibrary(name string) (Library, error) {
-	libMutex.Lock()
-	defer libMutex.Unlock()
-	if lib, ok := libRegistry[name]; ok {
-		return lib, nil
-	}
-	lib, err := Dlopen(name)
-	if err != nil {
-		return nil, err
-	}
-	libRegistry[name] = lib
-	return lib, nil
-}
-
 type Proc struct {
-	Library string
-	Name    string
-	Found   atomic.Uintptr
+	library *Library
+	name    string
+	cache   atomic.Uintptr
 }
 
-func (lp *Proc) Find() uintptr {
-	proc := lp.Found.Load()
+//go:noinline
+func (lp *Proc) addrSlow() uintptr {
+	proc := lp.cache.Load()
 	if proc == 0 {
-		lib, err := refLibrary(lp.Library)
+		lib, err := lp.library.Get()
 		if err != nil {
-			panic("failed to load library: " + lp.Library)
+			panic("failed to load library: " + err.Error())
 		}
-		proc = lib.Lookup(lp.Name)
+
+		proc = lib.Lookup(lp.name)
 		if proc == 0 {
-			panic("proc not found: " + lp.Name)
+			panic("proc not found: " + lp.name)
 		}
-		lp.Found.Store(proc)
+		lp.cache.Store(proc)
 	}
 	return proc
 }
-func Import(lib, name string) Proc {
-	return Proc{
-		Name:    name,
-		Library: lib,
+
+//go:registerparams
+func (lp *Proc) Addr() uintptr {
+	proc := lp.cache.Load()
+	if proc == 0 {
+		proc = lp.addrSlow()
 	}
+	return proc
 }
 
 //go:uintptrescapes
@@ -90,66 +77,79 @@ func invoke11(proc uintptr, a, b, c, d, e, f, g, h, i, j, k uintptr) uintptr
 func invoke12(proc uintptr, a, b, c, d, e, f, g, h, i, j, k, l uintptr) uintptr
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call0() (r1 uintptr) {
-	return invoke0(lp.Find())
+	return invoke0(lp.Addr())
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call1(a uintptr) (r1 uintptr) {
-	return invoke1(lp.Find(), a)
+	return invoke1(lp.Addr(), a)
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call2(a, b uintptr) (r1 uintptr) {
-	return invoke2(lp.Find(), a, b)
+	return invoke2(lp.Addr(), a, b)
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call3(a, b, c uintptr) (r1 uintptr) {
-	return invoke3(lp.Find(), a, b, c)
+	return invoke3(lp.Addr(), a, b, c)
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call4(a, b, c, d uintptr) (r1 uintptr) {
-	return invoke4(lp.Find(), a, b, c, d)
+	return invoke4(lp.Addr(), a, b, c, d)
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call5(a, b, c, d, e uintptr) (r1 uintptr) {
-	return invoke5(lp.Find(), a, b, c, d, e)
+	return invoke5(lp.Addr(), a, b, c, d, e)
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call6(a, b, c, d, e, f uintptr) (r1 uintptr) {
-	return invoke6(lp.Find(), a, b, c, d, e, f)
+	return invoke6(lp.Addr(), a, b, c, d, e, f)
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call7(a, b, c, d, e, f, g uintptr) (r1 uintptr) {
-	return invoke7(lp.Find(), a, b, c, d, e, f, g)
+	return invoke7(lp.Addr(), a, b, c, d, e, f, g)
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call8(a, b, c, d, e, f, g, h uintptr) (r1 uintptr) {
-	return invoke8(lp.Find(), a, b, c, d, e, f, g, h)
+	return invoke8(lp.Addr(), a, b, c, d, e, f, g, h)
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call9(a, b, c, d, e, f, g, h, i uintptr) (r1 uintptr) {
-	return invoke9(lp.Find(), a, b, c, d, e, f, g, h, i)
+	return invoke9(lp.Addr(), a, b, c, d, e, f, g, h, i)
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call10(a, b, c, d, e, f, g, h, i, j uintptr) (r1 uintptr) {
-	return invoke10(lp.Find(), a, b, c, d, e, f, g, h, i, j)
+	return invoke10(lp.Addr(), a, b, c, d, e, f, g, h, i, j)
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call11(a, b, c, d, e, f, g, h, i, j, k uintptr) (r1 uintptr) {
-	return invoke11(lp.Find(), a, b, c, d, e, f, g, h, i, j, k)
+	return invoke11(lp.Addr(), a, b, c, d, e, f, g, h, i, j, k)
 }
 
 //go:uintptrescapes
+//go:registerparams
 func (lp *Proc) Call12(a, b, c, d, e, f, g, h, i, j, k, l uintptr) (r1 uintptr) {
-	return invoke12(lp.Find(), a, b, c, d, e, f, g, h, i, j, k, l)
+	return invoke12(lp.Addr(), a, b, c, d, e, f, g, h, i, j, k, l)
 }
