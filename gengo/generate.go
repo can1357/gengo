@@ -41,7 +41,7 @@ func copyDecoration(d *dst.NodeDecs, node clang.Node) {
 	}
 }
 
-func (mod Module) GenerateEnum(n *clang.EnumDecl) {
+func (mod Module) EmitEnum(n *clang.EnumDecl) {
 	// Add the typedef.
 	var ty dst.Expr
 	for _, c := range n.Inner {
@@ -93,7 +93,7 @@ func (mod Module) GenerateEnum(n *clang.EnumDecl) {
 	})
 }
 
-func (mod Module) TryGenerateNaturalRecord(n *clang.RecordDecl, layout *clang.RecordLayout, ty TypeRef, fl *dst.FieldList, vld *[]initTypeValidation) bool {
+func (mod Module) TryEmitNaturalStruct(n *clang.RecordDecl, layout *clang.RecordLayout, ty TypeRef, fl *dst.FieldList, vld *[]initTypeValidation) bool {
 	// Can't define a natural type if it is a union.
 	if n.TagUsed == "union" {
 		return false
@@ -149,29 +149,34 @@ func (mod Module) TryGenerateNaturalRecord(n *clang.RecordDecl, layout *clang.Re
 	return true
 }
 
-func (mod Module) GenerateSyntheticRecord(node *clang.RecordDecl, layout *clang.RecordLayout, ty TypeRef, fl *dst.FieldList) {
+func (mod Module) EmitSyntheticStruct(n *clang.RecordDecl, layout *clang.RecordLayout, ty TypeRef, fl *dst.FieldList, vld *[]initTypeValidation) {
 	// Add byte[size] field.
-	primitive := BuiltinByte
-	n := layout.Size
+	unitType := BuiltinByte
+	unitCount := layout.Size
 	if layout.Align >= 8 {
-		primitive = BuiltinInt64
-		n /= 8
+		unitType = BuiltinInt64
+		unitCount /= 8
 	} else if layout.Align >= 4 {
-		primitive = BuiltinInt32
-		n /= 4
+		unitType = BuiltinInt32
+		unitCount /= 4
 	} else if layout.Align >= 2 {
-		primitive = BuiltinInt16
-		n /= 2
+		unitType = BuiltinInt16
+		unitCount /= 2
 	}
 	fl.List = append(fl.List, &dst.Field{
 		Names: []*dst.Ident{dst.NewIdent("Raw")},
 		Type: &dst.ArrayType{
 			Len: &dst.BasicLit{
 				Kind:  token.INT,
-				Value: strconv.Itoa(n),
+				Value: strconv.Itoa(unitCount),
 			},
-			Elt: primitive.Ref(),
+			Elt: unitType.Ref(),
 		},
+	})
+	*vld = append(*vld, initTypeValidation{
+		ty:    ty,
+		size:  layout.Size,
+		align: layout.Align,
 	})
 
 	sliceOffset := func(offset int) dst.Expr {
@@ -213,10 +218,10 @@ func (mod Module) GenerateSyntheticRecord(node *clang.RecordDecl, layout *clang.
 
 	// Add accessors for each field.
 	for _, c := range layout.Fields {
-		name := mod.Parent.NameField(c.Name, node.Name)
+		name := mod.Parent.NameField(c.Name, n.Name)
 
 		var funcDec dst.FuncDeclDecorations
-		for _, f := range node.Children() {
+		for _, f := range n.Children() {
 			if f, ok := f.(*clang.FieldDecl); ok {
 				if f.Name == c.Name {
 					copyDecoration(&funcDec.NodeDecs, f)
@@ -310,7 +315,7 @@ func (mod Module) GenerateSyntheticRecord(node *clang.RecordDecl, layout *clang.
 	}
 }
 
-func (mod Module) GenerateRecord(n *clang.RecordDecl, layouts *clang.Layouts, deferred *deferred, vld *[]initTypeValidation) {
+func (mod Module) EmitStruct(n *clang.RecordDecl, layouts *clang.LayoutMap, deferred *deferred, vld *[]initTypeValidation) {
 	var layout *clang.RecordLayout
 	var defName string
 	var qualDefName string
@@ -359,13 +364,13 @@ func (mod Module) GenerateRecord(n *clang.RecordDecl, layouts *clang.Layouts, de
 	}
 
 	deferred.Do(func() {
-		if !mod.TryGenerateNaturalRecord(n, layout, str, fieldList, vld) {
-			mod.GenerateSyntheticRecord(n, layout, str, fieldList)
+		if !mod.TryEmitNaturalStruct(n, layout, str, fieldList, vld) {
+			mod.EmitSyntheticStruct(n, layout, str, fieldList, vld)
 		}
 	})
 }
 
-func (mod Module) GenerateFunction(n *clang.FunctionDecl) {
+func (mod Module) EmitFunction(n *clang.FunctionDecl) {
 	// Add the import.
 	// - var __imp_func = Import("func")
 	//
@@ -535,7 +540,7 @@ func (mod Module) GenerateFunction(n *clang.FunctionDecl) {
 	}
 }
 
-func (mod Module) GenerateTypedef(n *clang.TypedefDecl) {
+func (mod Module) EmitTypedef(n *clang.TypedefDecl) {
 	// Resolve the type.
 	var ty dst.Expr
 	if inner := clang.First[clang.TypeNode](n); inner != nil {
@@ -571,33 +576,33 @@ func (mod Module) GenerateTypedef(n *clang.TypedefDecl) {
 	copyDecoration(&tydef.Decl.Decs.NodeDecs, n)
 }
 
-func (mod Module) GenerateFrom(ast clang.Node, layouts *clang.Layouts) {
+func (mod Module) EmitFrom(ast clang.Node, layouts *clang.LayoutMap) {
 	deferred := deferred{}
 	validators := []initTypeValidation{}
 
 	// Define enums.
 	clang.Visit(ast, func(ed *clang.EnumDecl) bool {
-		mod.GenerateEnum(ed)
+		mod.EmitEnum(ed)
 		return true
 	})
 
 	// Define structs and unions.
 	clang.Visit(ast, func(rd *clang.RecordDecl) bool {
 		if rd.CompleteDefinition {
-			mod.GenerateRecord(rd, layouts, &deferred, &validators)
+			mod.EmitStruct(rd, layouts, &deferred, &validators)
 		}
 		return true
 	})
 
 	// Define typedefs.
 	clang.Visit(ast, func(td *clang.TypedefDecl) bool {
-		mod.GenerateTypedef(td)
+		mod.EmitTypedef(td)
 		return true
 	})
 
 	// Define functions.
 	clang.Visit(ast, func(fd *clang.FunctionDecl) bool {
-		mod.GenerateFunction(fd)
+		mod.EmitFunction(fd)
 		return true
 	})
 
@@ -646,6 +651,17 @@ func (mod Module) GenerateFrom(ast clang.Node, layouts *clang.Layouts) {
 			Name: dst.NewIdent("init"),
 			Type: &dst.FuncType{},
 			Body: &dst.BlockStmt{},
+			Decs: dst.FuncDeclDecorations{
+				NodeDecs: dst.NodeDecs{
+					Before: dst.NewLine,
+					After:  dst.NewLine,
+					Start: []string{
+						"//",
+						"// Validates the ABI of the generated code against the current runtime.",
+						"//",
+					},
+				},
+			},
 		}
 		mod.Decls = append(mod.Decls, initFunc)
 	}

@@ -45,7 +45,7 @@ func (p *Package) Transform(module string, opt *clang.Options) error {
 		return fmt.Errorf("failed to transform %+v: %w", opt.Sources, err)
 	}
 	main := p.Upsert(module)
-	main.GenerateFrom(ast, layouts)
+	main.EmitFrom(ast, layouts)
 	return nil
 }
 

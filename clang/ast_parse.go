@@ -660,7 +660,7 @@ func unmarshalNode(rt *refTracker, data *fastjson.Value) (Node, error) {
 		return ty(rt, data)
 	}
 }
-func ParseASTOutput(data []byte) (node Node, err error) {
+func ParseAST(data []byte) (node Node, err error) {
 	iter, err := fastjson.ParseBytes(data)
 	if err != nil {
 		return nil, err

@@ -39,7 +39,7 @@ func (o *Options) ClangCommand(opt ...string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func ParseAST(opt *Options) ([]byte, error) {
+func CreateAST(opt *Options) ([]byte, error) {
 	return opt.ClangCommand(
 		"-fsyntax-only",
 		"-nobuiltininc",
@@ -48,7 +48,7 @@ func ParseAST(opt *Options) ([]byte, error) {
 	)
 }
 
-func ParseLayout(opt *Options) ([]byte, error) {
+func CreateLayoutMap(opt *Options) ([]byte, error) {
 	return opt.ClangCommand(
 		"-fsyntax-only",
 		"-nobuiltininc",
@@ -60,23 +60,22 @@ func ParseLayout(opt *Options) ([]byte, error) {
 	)
 }
 
-func Parse(opt *Options) (ast Node, layout *Layouts, err error) {
-
+func Parse(opt *Options) (ast Node, layout *LayoutMap, err error) {
 	errg := &errgroup.Group{}
 	errg.Go(func() error {
-		res, e := ParseAST(opt)
+		res, e := CreateAST(opt)
 		if e != nil {
 			return e
 		}
-		ast, e = ParseASTOutput(res)
+		ast, e = ParseAST(res)
 		return e
 	})
 	errg.Go(func() error {
-		res, e := ParseLayout(opt)
+		res, e := CreateLayoutMap(opt)
 		if e != nil {
 			return e
 		}
-		layout, e = ParseLayoutOutput(res)
+		layout, e = ParseLayoutMap(res)
 		return e
 	})
 	if err := errg.Wait(); err != nil {

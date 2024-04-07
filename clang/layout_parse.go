@@ -7,32 +7,31 @@ import (
 	"strings"
 )
 
-type LayoutNode struct {
+type layout struct {
 	indent int // internal use
-
 	Offset int
 	Name   string
 	Type   string
-	Fields []*LayoutNode
+	Fields []*layout
 }
 
-func (n LayoutNode) UnmarshalString(data string) error {
+func (n layout) UnmarshalString(data string) error {
 	return nil
 }
-func (n *LayoutNode) tostring(wr *strings.Builder, pad string) {
+func (n *layout) tostring(wr *strings.Builder, pad string) {
 	fmt.Fprintf(wr, "%s %s %s @ +0x%x\n", pad, n.Type, n.Name, n.Offset)
 	for _, field := range n.Fields {
 		field.tostring(wr, "  "+pad)
 	}
 }
-func (n *LayoutNode) String() string {
+func (n *layout) String() string {
 	wr := &strings.Builder{}
 	n.tostring(wr, "-")
 	return wr.String()
 }
 
-func (n *LayoutNode) regroup() {
-	res := make([]*LayoutNode, 0, len(n.Fields))
+func (n *layout) regroup() {
+	res := make([]*layout, 0, len(n.Fields))
 
 	for i := 0; i < len(n.Fields); i++ {
 		field := n.Fields[i]
@@ -56,7 +55,7 @@ func (n *LayoutNode) regroup() {
 }
 
 type RecordLayout struct {
-	LayoutNode
+	layout
 	Size, Align int
 }
 
@@ -115,7 +114,7 @@ func (r *RecordLayout) UnmarshalString(data string) error {
 			r.indent = indent
 			first = false
 		} else {
-			r.Fields = append(r.Fields, &LayoutNode{
+			r.Fields = append(r.Fields, &layout{
 				Offset: offset,
 				Name:   name,
 				Type:   typen,
@@ -132,14 +131,14 @@ func (r *RecordLayout) UnmarshalString(data string) error {
 	return nil
 }
 
-type Layouts struct {
+type LayoutMap struct {
 	Records []*RecordLayout
 	Map     map[string]*RecordLayout
 }
 
 const layoutMarker = "*** Dumping AST Record Layout"
 
-func (l *Layouts) UnmarshalString(data string) error {
+func (l *LayoutMap) UnmarshalString(data string) error {
 	data = strings.TrimSpace(data)
 	data, found := strings.CutPrefix(data, layoutMarker)
 	if !found {
@@ -158,8 +157,8 @@ func (l *Layouts) UnmarshalString(data string) error {
 	return nil
 }
 
-func ParseLayoutOutput(data []byte) (*Layouts, error) {
-	l := &Layouts{
+func ParseLayoutMap(data []byte) (*LayoutMap, error) {
+	l := &LayoutMap{
 		Map: make(map[string]*RecordLayout),
 	}
 	return l, l.UnmarshalString(string(data))
