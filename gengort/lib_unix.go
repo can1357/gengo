@@ -5,8 +5,8 @@ package gengort
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/ebitengine/purego"
@@ -26,16 +26,16 @@ func (w solib) Lookup(name string) uintptr {
 
 func LoadLibrary(name string) (LoadedLibrary, error) {
 	h, err := purego.Dlopen(name, purego.RTLD_NOW|purego.RTLD_LOCAL)
-	if err != nil {
-		rel, e := filepath.Rel(".", name)
-		if e == nil {
-			if h, e2 := purego.Dlopen(rel, purego.RTLD_NOW|purego.RTLD_LOCAL); e2 == nil {
-				return solib{Handle: h}, nil
-			}
-		}
-		return nil, err
+	if err == nil {
+		return solib{Handle: h}, nil
 	}
-	return solib{Handle: h}, nil
+	if !strings.ContainsAny(name, "/\\") {
+		h, elocal := purego.Dlopen("./"+name, purego.RTLD_NOW|purego.RTLD_LOCAL)
+		if elocal == nil {
+			return solib{Handle: h}, nil
+		}
+	}
+	return nil, err
 }
 
 func FindLibrary(name string) (LoadedLibrary, error) {
@@ -46,17 +46,13 @@ func FindLibrary(name string) (LoadedLibrary, error) {
 	org := err
 	if !strings.HasSuffix(name, ".so") {
 		name += ".so"
-		lib, err = LoadLibrary(name)
-		if err == nil {
+		if lib, err = LoadLibrary(name); err == nil {
 			return lib, nil
 		}
 	}
-	if strings.ContainsAny(name, "/\\") {
-		return nil, err
-	}
 	if !strings.HasPrefix(name, "lib") {
-		lib, err = LoadLibrary("lib" + name)
-		if err == nil {
+		name = "lib" + name
+		if lib, err = LoadLibrary(name); err == nil {
 			return lib, nil
 		}
 	}
@@ -64,19 +60,15 @@ func FindLibrary(name string) (LoadedLibrary, error) {
 }
 
 func LoadLibraryEmbed(data []byte) (LoadedLibrary, error) {
-	cache, err := os.UserCacheDir()
-	if err != nil {
-		cache, err = os.UserHomeDir()
-		if err != nil {
-			cache = os.TempDir()
-		}
-	}
+	cache := getTmpDir()
 	hash := sha1.Sum(data)
-	name := hex.EncodeToString(hash[:]) + ".gengo.so"
-	path := cache + string(os.PathSeparator) + name
+	name := "." + hex.EncodeToString(hash[:4]) + ".gengo.so"
+	path := cache + name
 	if stat, err := os.Stat(path); err != nil || stat.Size() != int64(len(data)) {
-		err = os.WriteFile(path, data, 0644)
+		os.MkdirAll(cache, 0755)
+		err = os.WriteFile(path, data, 0755)
 		if err != nil {
+			fmt.Println("write file error: ", err)
 			return nil, err
 		}
 	}

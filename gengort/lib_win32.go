@@ -35,18 +35,13 @@ func FindLibrary(name string) (LoadedLibrary, error) {
 }
 
 func LoadLibraryEmbed(data []byte) (LoadedLibrary, error) {
-	cache, err := os.UserCacheDir()
-	if err != nil {
-		cache, err = os.UserHomeDir()
-		if err != nil {
-			cache = os.TempDir()
-		}
-	}
+	cache := getTmpDir()
 	hash := sha1.Sum(data)
-	name := hex.EncodeToString(hash[:]) + ".gengo.dll"
-	path := cache + string(os.PathSeparator) + name
+	name := "." + hex.EncodeToString(hash[:4]) + ".gengo.dll"
+	path := cache + name
 	if stat, err := os.Stat(path); err != nil || stat.Size() != int64(len(data)) {
-		err = os.WriteFile(path, data, 0644)
+		os.MkdirAll(cache, 0755)
+		err = os.WriteFile(path, data, 0755)
 		if err != nil {
 			return nil, err
 		}

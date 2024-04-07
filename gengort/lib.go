@@ -1,6 +1,8 @@
 package gengort
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 )
@@ -70,3 +72,13 @@ func (l *Library) Import(name string) *Proc {
 		name:    name,
 	}
 }
+
+var getTmpDir = sync.OnceValue(func() string {
+	if exec, err := os.Executable(); err == nil {
+		return filepath.Dir(exec) + string(os.PathSeparator)
+	}
+	if cache, err := os.UserCacheDir(); err == nil {
+		return cache + string(os.PathSeparator)
+	}
+	return os.TempDir() + string(os.PathSeparator)
+})
