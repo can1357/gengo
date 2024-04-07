@@ -655,10 +655,23 @@ func (mod Module) EmitFrom(ast clang.Node, layouts *clang.LayoutMap) {
 	validatorBody := []dst.Stmt{}
 	for _, v := range validators {
 		args := []dst.Expr{
+			// (*T)(nil)
+			&dst.CallExpr{
+				Fun: &dst.ParenExpr{
+					X: &dst.StarExpr{
+						X: v.ty.Ref(),
+					},
+				},
+				Args: []dst.Expr{
+					dst.NewIdent("nil"),
+				},
+			},
+			// 0x1234
 			&dst.BasicLit{
 				Kind:  token.INT,
 				Value: fmt.Sprintf("0x%x", v.size),
 			},
+			// 0x1234
 			&dst.BasicLit{
 				Kind:  token.INT,
 				Value: fmt.Sprintf("0x%x", v.align),
@@ -668,12 +681,9 @@ func (mod Module) EmitFrom(ast clang.Node, layouts *clang.LayoutMap) {
 
 		validatorBody = append(validatorBody, &dst.ExprStmt{
 			X: &dst.CallExpr{
-				Fun: &dst.IndexExpr{
-					X: &dst.SelectorExpr{
-						X:   dst.NewIdent("gengort"),
-						Sel: dst.NewIdent("Validate"),
-					},
-					Index: v.ty.Ref(),
+				Fun: &dst.SelectorExpr{
+					X:   dst.NewIdent("gengort"),
+					Sel: dst.NewIdent("Validate"),
 				},
 				Args: args,
 			},
