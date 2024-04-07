@@ -16,4 +16,5 @@ require (
 	github.com/dave/dst v0.27.3
 	github.com/iancoleman/strcase v0.3.0
 	github.com/valyala/fastjson v1.6.4
+	golang.org/x/sync v0.7.0
 )

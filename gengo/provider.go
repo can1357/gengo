@@ -147,19 +147,23 @@ var defaultBuiltinMap = map[string]Identifier{
 
 // Provider is a type provider allowing hooks for library specific type conversions.
 type Provider interface {
-	// ConvertFieldName converts a field name to a Go compatible name.
-	ConvertFieldName(name string) string
-	// ConvertTypeName converts a type name to a Go compatible name.
-	ConvertTypeName(name string) string
-	// ConvertValueName converts a value name to a Go compatible name.
-	ConvertValueName(name string) string
-	// ConvertFuncName converts a function name to a Go compatible name.
-	ConvertFuncName(name string) string
-	// ConvertArgName converts an argument name to a Go compatible name.
-	ConvertArgName(name string) string
+	// NameField converts a field name to a Go compatible name.
+	NameField(name string, recordName string) string
+	// NameType converts a type name to a Go compatible name.
+	NameType(name string) string
+	// NameValue converts a value name to a Go compatible name.
+	NameValue(name string) string
+	// NameFunc converts a function name to a Go compatible name.
+	NameFunc(name string) string
+	// NameArg converts an argument name to a Go compatible name.
+	NameArg(name string, argType, funcName string) string
+	// NameGetter takes a transformed field name and returns the getter name.
+	NameGetter(name string) string
+	// NameSetter takes a transformed field name and returns the setter name.
+	NameSetter(name string) string
 
-	// ForceSyntethic returns true if the type should be syntethic (accessors instead of direct fields).
-	ForceSyntethic(name string) bool
+	// ForceSynthetic returns true if the type should be syntethic (accessors instead of direct fields).
+	ForceSynthetic(name string) bool
 	// ConvertQualType converts a qualified type to a Go expression.
 	ConvertQualType(q string) dst.Expr
 	// ConvertTypeExpr converts a type node to a Go expression.
@@ -185,22 +189,22 @@ func normalizeAnonName(name string) string {
 	return name
 }
 
-type BasicProviderOption func(*BasicProvider)
+type BaseProviderOption func(*BaseProvider)
 
-func WithRemovePrefix(prefixes ...string) BasicProviderOption {
-	return func(p *BasicProvider) {
+func WithRemovePrefix(prefixes ...string) BaseProviderOption {
+	return func(p *BaseProvider) {
 		p.RemovedPrefixes = append(p.RemovedPrefixes, prefixes...)
 	}
 }
-func WithInferredMethods(rules []MethodInferenceRule) BasicProviderOption {
-	return func(p *BasicProvider) {
+func WithInferredMethods(rules []MethodInferenceRule) BaseProviderOption {
+	return func(p *BaseProvider) {
 		p.InferredMethods = append(p.InferredMethods, rules...)
 	}
 }
-func WithForcedSyntethic(names ...string) BasicProviderOption {
-	return func(p *BasicProvider) {
+func WithForcedSynthetic(names ...string) BaseProviderOption {
+	return func(p *BaseProvider) {
 		for _, name := range names {
-			p.ForcedSyntethic[name] = struct{}{}
+			p.ForcedSynthetic[name] = struct{}{}
 		}
 	}
 }
@@ -210,20 +214,20 @@ type MethodInferenceRule struct {
 	Receiver string
 }
 
-type BasicProvider struct {
+type BaseProvider struct {
 	Types           map[string]TypeRef
 	Builtins        map[string]Identifier
 	RemovedPrefixes []string
 	InferredMethods []MethodInferenceRule
-	ForcedSyntethic map[string]struct{}
+	ForcedSynthetic map[string]struct{}
 }
 
-func NewBasicProvider(opt ...BasicProviderOption) *BasicProvider {
-	dc := &BasicProvider{
+func NewBaseProvider(opt ...BaseProviderOption) *BaseProvider {
+	dc := &BaseProvider{
 		Types:           map[string]TypeRef{},
 		Builtins:        map[string]Identifier{},
 		InferredMethods: []MethodInferenceRule{},
-		ForcedSyntethic: map[string]struct{}{},
+		ForcedSynthetic: map[string]struct{}{},
 	}
 	for k, v := range defaultBuiltinMap {
 		dc.Builtins[k] = v
@@ -233,7 +237,7 @@ func NewBasicProvider(opt ...BasicProviderOption) *BasicProvider {
 	}
 	return dc
 }
-func (p *BasicProvider) removePrefixes(name string) string {
+func (p *BaseProvider) removePrefixes(name string) string {
 	for _, prefix := range p.RemovedPrefixes {
 		if len(name) > len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) {
 			return name[len(prefix):]
@@ -242,45 +246,51 @@ func (p *BasicProvider) removePrefixes(name string) string {
 	return name
 }
 
-func (p *BasicProvider) ConvertFieldName(name string) string {
-	return p.ConvertTypeName(name)
+func (p *BaseProvider) NameGetter(name string) string {
+	return name
 }
-func (p *BasicProvider) ConvertFuncName(name string) string {
-	return p.ConvertTypeName(name)
+func (p *BaseProvider) NameSetter(name string) string {
+	return "Set" + name
 }
-func (p *BasicProvider) ConvertTypeName(name string) string {
+func (p *BaseProvider) NameField(name string, recordName string) string {
+	return p.NameType(name)
+}
+func (p *BaseProvider) NameFunc(name string) string {
+	return p.NameType(name)
+}
+func (p *BaseProvider) NameType(name string) string {
 	if strings.HasSuffix(name, "_") {
-		return p.ConvertTypeName(name[:len(name)-1]) + "_"
+		return p.NameType(name[:len(name)-1]) + "_"
 	}
 	if strings.HasPrefix(name, "_") {
-		return "_" + p.ConvertTypeName(name[1:])
+		return "_" + p.NameType(name[1:])
 	}
 	name = p.removePrefixes(name)
 	return strcase.ToCamel(name)
 }
-func (p *BasicProvider) ConvertValueName(name string) string {
+func (p *BaseProvider) NameValue(name string) string {
 	if strings.HasSuffix(name, "_") {
-		return p.ConvertTypeName(name[:len(name)-1]) + "_"
+		return p.NameType(name[:len(name)-1]) + "_"
 	}
 	if strings.HasPrefix(name, "_") {
-		return "_" + p.ConvertTypeName(name[1:])
+		return "_" + p.NameType(name[1:])
 	}
 	name = p.removePrefixes(name)
 	return strcase.ToScreamingSnake(name)
 }
-func (p *BasicProvider) ConvertArgName(name string) string {
+func (p *BaseProvider) NameArg(name string, argType, funcName string) string {
 	if _, ok := reservedIdentifiers[name]; ok {
 		return "_" + name
 	}
 	return name
 }
-func (p *BasicProvider) ForceSyntethic(name string) bool {
-	if _, ok := p.ForcedSyntethic[name]; ok {
+func (p *BaseProvider) ForceSynthetic(name string) bool {
+	if _, ok := p.ForcedSynthetic[name]; ok {
 		return true
 	}
 	return false
 }
-func (p *BasicProvider) ConvertQualType(q string) dst.Expr {
+func (p *BaseProvider) ConvertQualType(q string) dst.Expr {
 	// Dumb qualifiers.
 	q = strings.TrimSpace(q)
 	q = strings.ReplaceAll(q, "const ", "")
@@ -339,7 +349,7 @@ func (p *BasicProvider) ConvertQualType(q string) dst.Expr {
 	fmt.Printf("[WARN] Unknown type: %s\n", q)
 	return BuiltinAny.Ref()
 }
-func (p *BasicProvider) ConvertTypeExpr(n clang.TypeNode) dst.Expr {
+func (p *BaseProvider) ConvertTypeExpr(n clang.TypeNode) dst.Expr {
 	switch n := n.(type) {
 	case *clang.BuiltinType:
 		return p.ConvertQualType(n.Type.QualType)
@@ -390,7 +400,7 @@ func (p *BasicProvider) ConvertTypeExpr(n clang.TypeNode) dst.Expr {
 		return nil
 	}
 }
-func (p *BasicProvider) AddType(tc TypeClass, name string, decl dst.Expr) TypeRef {
+func (p *BaseProvider) AddType(tc TypeClass, name string, decl dst.Expr) TypeRef {
 	ident := &TrackedIdentifier{Name: name}
 	gen := &dst.GenDecl{
 		Tok: token.TYPE,
@@ -418,11 +428,11 @@ func (p *BasicProvider) AddType(tc TypeClass, name string, decl dst.Expr) TypeRe
 	}
 	return tr
 }
-func (p *BasicProvider) RemapType(name string, tr TypeRef) {
+func (p *BaseProvider) RemapType(name string, tr TypeRef) {
 	name = normalizeAnonName(name)
 	p.Types[name] = tr
 }
-func (p *BasicProvider) InferMethod(name string) (rcv string, newName string) {
+func (p *BaseProvider) InferMethod(name string) (rcv string, newName string) {
 	for _, rule := range p.InferredMethods {
 		if strings.HasPrefix(name, rule.Name) {
 			return rule.Receiver, strings.TrimPrefix(name, rule.Name)

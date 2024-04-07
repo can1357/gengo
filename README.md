@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	pkg := gengo.NewPackage("zydis", gengo.NewBasicProvider(
+	pkg := gengo.NewPackage("zydis",
 		gengo.WithRemovePrefix(
 			"Zydis_", "Zyan_", "Zycore_",
 			"Zydis", "Zyan", "Zycore",
@@ -27,9 +27,8 @@ func main() {
 		gengo.WithInferredMethods([]gengo.MethodInferenceRule{
 			{Name: "ZydisDecoder", Receiver: "Decoder"},
 			{Name: "ZydisEncoder", Receiver: "EncoderRequest"},
-			{Name: "ZydisFormatterToken", Receiver: "FormatterToken"},
 			{Name: "ZydisFormatterBuffer", Receiver: "FormatterBuffer"},
-			{Name: "ZydisFormatter", Receiver: "Formatter"},
+			{Name: "ZydisFormatter", Receiver: "ZydisFormatter *"},
 			{Name: "ZyanVector", Receiver: "Vector"},
 			{Name: "ZyanStringView", Receiver: "StringView"},
 			{Name: "ZyanString", Receiver: "String"},
@@ -39,7 +38,11 @@ func main() {
 			{Name: "ZydisISAExt", Receiver: "ISAExt"},
 			{Name: "ZydisCategory", Receiver: "Category"},
 		}),
-	))
+		gengo.WithForcedSynthetic(
+			"ZydisShortString_",
+			"struct ZydisShortString_",
+		),
+	)
 	err := pkg.Transform("zydis", &clang.Options{
 		Sources: []string{"./Zydis.h"},
 		AdditionalParams: []string{

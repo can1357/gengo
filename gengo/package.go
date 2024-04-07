@@ -15,35 +15,42 @@ import (
 )
 
 type Package struct {
-	dst.Package
+	Name     string
 	Restorer *decorator.Restorer
+	Files    map[string]*dst.File
 	Provider
 }
 
-func NewPackage(name string, prov Provider) *Package {
+func NewPackageWithProvider(name string, prov Provider) *Package {
 	return &Package{
-		Package: dst.Package{
-			Name:    name,
-			Scope:   dst.NewScope(nil),
-			Imports: make(map[string]*dst.Object),
-			Files:   make(map[string]*dst.File),
-		},
+		Name:     name,
 		Restorer: decorator.NewRestorer(),
+		Files:    make(map[string]*dst.File),
 		Provider: prov,
 	}
 }
 
+func NewPackage(name string, opts ...BaseProviderOption) *Package {
+	return &Package{
+		Name:     name,
+		Restorer: decorator.NewRestorer(),
+		Files:    make(map[string]*dst.File),
+		Provider: NewBaseProvider(opts...),
+	}
+}
+
 func (p *Package) Transform(module string, opt *clang.Options) error {
-	ast, layouts, err := clang.Transform(opt)
+	ast, layouts, err := clang.Parse(opt)
 	if err != nil {
 		return fmt.Errorf("failed to transform %+v: %w", opt.Sources, err)
 	}
 	main := p.Upsert(module)
-	Convert(ast, layouts, main)
+	main.GenerateFrom(ast, layouts)
 	return nil
 }
 
 func (p *Package) Fprint(fn func(path string) (io.WriteCloser, error)) error {
+	p.Restorer.Extras = true
 	for k, f := range p.Files {
 		file, err := fn(k + ".go")
 		if err != nil {

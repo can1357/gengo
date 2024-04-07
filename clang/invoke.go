@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type Options struct {
@@ -14,7 +16,7 @@ type Options struct {
 	Sources          []string
 }
 
-func (o *Options) GetClangPath() string {
+func (o *Options) ClangPath() string {
 	if o.ToolkitPath != "" {
 		if stat, err := os.Stat(o.ToolkitPath); err == nil && stat.IsDir() {
 			return filepath.Join(o.ToolkitPath, "clang")
@@ -24,27 +26,30 @@ func (o *Options) GetClangPath() string {
 	}
 	return "clang"
 }
-
-func GenerateAST(opt *Options) ([]byte, error) {
-	opts := append([]string{
-		"-fsyntax-only",
-		"-nobuiltininc",
-		"-Xclang",
-		"-ast-dump=json",
-	}, opt.Sources...)
-	opts = append(opts, opt.AdditionalParams...)
-	cmd := exec.Command(opt.GetClangPath(), opts...)
+func (o *Options) ClangCommand(opt ...string) ([]byte, error) {
+	cmd := exec.Command(o.ClangPath(), opt...)
+	cmd.Args = append(cmd.Args, o.AdditionalParams...)
+	cmd.Args = append(cmd.Args, o.Sources...)
 	buf := &bytes.Buffer{}
 	cmd.Stdout = buf
 	err := cmd.Run()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate AST: %w", err)
+		return nil, fmt.Errorf("failed to run clang: %w", err)
 	}
 	return buf.Bytes(), nil
 }
 
-func GenerateLayout(opt *Options) ([]byte, error) {
-	opts := append([]string{
+func ParseAST(opt *Options) ([]byte, error) {
+	return opt.ClangCommand(
+		"-fsyntax-only",
+		"-nobuiltininc",
+		"-Xclang",
+		"-ast-dump=json",
+	)
+}
+
+func ParseLayout(opt *Options) ([]byte, error) {
+	return opt.ClangCommand(
 		"-fsyntax-only",
 		"-nobuiltininc",
 		"-emit-llvm",
@@ -52,34 +57,30 @@ func GenerateLayout(opt *Options) ([]byte, error) {
 		"-fdump-record-layouts",
 		"-Xclang",
 		"-fdump-record-layouts-complete",
-	}, opt.Sources...)
-	opts = append(opts, opt.AdditionalParams...)
-	cmd := exec.Command(opt.GetClangPath(), opts...)
-	buf := &bytes.Buffer{}
-	cmd.Stdout = buf
-	err := cmd.Run()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate layout: %w", err)
-	}
-	return buf.Bytes(), nil
+	)
 }
 
-func Transform(opt *Options) (Node, *Layouts, error) {
-	ast, err := GenerateAST(opt)
-	if err != nil {
+func Parse(opt *Options) (ast Node, layout *Layouts, err error) {
+
+	errg := &errgroup.Group{}
+	errg.Go(func() error {
+		res, e := ParseAST(opt)
+		if e != nil {
+			return e
+		}
+		ast, e = ParseASTOutput(res)
+		return e
+	})
+	errg.Go(func() error {
+		res, e := ParseLayout(opt)
+		if e != nil {
+			return e
+		}
+		layout, e = ParseLayoutOutput(res)
+		return e
+	})
+	if err := errg.Wait(); err != nil {
 		return nil, nil, err
 	}
-	astl, err := GenerateLayout(opt)
-	if err != nil {
-		return nil, nil, err
-	}
-	layouts, err := ParseLayout(astl)
-	if err != nil {
-		return nil, nil, err
-	}
-	node, err := ParseAST(ast)
-	if err != nil {
-		return nil, nil, err
-	}
-	return node, layouts, nil
+	return ast, layout, nil
 }

@@ -30,7 +30,18 @@ type initTypeValidation struct {
 	fields []dst.Expr
 }
 
-func ConvertEnumNode(n *clang.EnumDecl, mod Module) {
+func copyDecoration(d *dst.NodeDecs, node clang.Node) {
+	comments := strings.TrimSpace(node.Comment())
+	if len(comments) > 0 {
+		for _, c := range strings.Split(comments, "\n") {
+			d.Start.Append("// " + c)
+		}
+		d.Before = dst.NewLine
+		d.After = dst.NewLine
+	}
+}
+
+func (mod Module) GenerateEnum(n *clang.EnumDecl) {
 	// Add the typedef.
 	var ty dst.Expr
 	for _, c := range n.Inner {
@@ -43,8 +54,8 @@ func ConvertEnumNode(n *clang.EnumDecl, mod Module) {
 		ty = BuiltinInt.Ref()
 	}
 	tydef := mod.AddType(TcEnum, n.Name, ty)
-	tydef.Rename(mod.Parent.ConvertTypeName(n.Name))
-	tydef.Decl.Decs.Start.Append(n.Comments()...)
+	tydef.Rename(mod.Parent.NameType(n.Name))
+	copyDecoration(&tydef.Decl.Decs.NodeDecs, n)
 
 	// Add the enum constants.
 	spec := []dst.Spec{}
@@ -60,8 +71,11 @@ func ConvertEnumNode(n *clang.EnumDecl, mod Module) {
 				}
 			}
 
+			var dec dst.ValueSpecDecorations
+			copyDecoration(&dec.NodeDecs, c)
+
 			spec = append(spec, &dst.ValueSpec{
-				Names: []*dst.Ident{dst.NewIdent(mod.Parent.ConvertValueName(c.Name))},
+				Names: []*dst.Ident{dst.NewIdent(mod.Parent.NameValue(c.Name))},
 				Type:  tydef.Ref(),
 				Values: []dst.Expr{
 					&dst.BasicLit{
@@ -69,9 +83,7 @@ func ConvertEnumNode(n *clang.EnumDecl, mod Module) {
 						Value: strconv.Itoa(val),
 					},
 				},
-				Decs: dst.ValueSpecDecorations{
-					Assign: c.Comments(),
-				},
+				Decs: dec,
 			})
 		}
 	}
@@ -81,12 +93,12 @@ func ConvertEnumNode(n *clang.EnumDecl, mod Module) {
 	})
 }
 
-func DefineNaturalType(n *clang.RecordDecl, layout *clang.RecordLayout, mod Module, ty TypeRef, fl *dst.FieldList, vld *[]initTypeValidation) bool {
+func (mod Module) TryGenerateNaturalRecord(n *clang.RecordDecl, layout *clang.RecordLayout, ty TypeRef, fl *dst.FieldList, vld *[]initTypeValidation) bool {
 	// Can't define a natural type if it is a union.
 	if n.TagUsed == "union" {
 		return false
 	}
-	if mod.Parent.ForceSyntethic(n.Name) {
+	if mod.Parent.ForceSynthetic(n.Name) {
 		return false
 	}
 
@@ -99,17 +111,18 @@ func DefineNaturalType(n *clang.RecordDecl, layout *clang.RecordLayout, mod Modu
 
 	// Add the fields.
 	for _, c := range layout.Fields {
+		var field *dst.Field
 		if c.Name == "" {
-			fl.List = append(fl.List, &dst.Field{
+			field = &dst.Field{
 				Names: []*dst.Ident{},
 				Type:  mod.Parent.ConvertQualType(c.Type),
-			})
+			}
 		} else {
-			name := mod.Parent.ConvertFieldName(c.Name)
-			fl.List = append(fl.List, &dst.Field{
+			name := mod.Parent.NameField(c.Name, n.Name)
+			field = &dst.Field{
 				Names: []*dst.Ident{dst.NewIdent(name)},
 				Type:  mod.Parent.ConvertQualType(c.Type),
-			})
+			}
 			v.fields = append(v.fields,
 				&dst.BasicLit{
 					Kind:  token.STRING,
@@ -121,13 +134,22 @@ func DefineNaturalType(n *clang.RecordDecl, layout *clang.RecordLayout, mod Modu
 				},
 			)
 		}
+		for _, f := range n.Children() {
+			if f, ok := f.(*clang.FieldDecl); ok {
+				if f.Name == c.Name {
+					copyDecoration(&field.Decs.NodeDecs, f)
+					break
+				}
+			}
+		}
+		fl.List = append(fl.List, field)
 	}
 
 	*vld = append(*vld, v)
 	return true
 }
 
-func DefineSyntheticType(layout *clang.RecordLayout, mod Module, ty TypeRef, fl *dst.FieldList) {
+func (mod Module) GenerateSyntheticRecord(node *clang.RecordDecl, layout *clang.RecordLayout, ty TypeRef, fl *dst.FieldList) {
 	// Add byte[size] field.
 	primitive := BuiltinByte
 	n := layout.Size
@@ -191,9 +213,21 @@ func DefineSyntheticType(layout *clang.RecordLayout, mod Module, ty TypeRef, fl 
 
 	// Add accessors for each field.
 	for _, c := range layout.Fields {
-		name := mod.Parent.ConvertFieldName(c.Name)
+		name := mod.Parent.NameField(c.Name, node.Name)
+
+		var funcDec dst.FuncDeclDecorations
+		for _, f := range node.Children() {
+			if f, ok := f.(*clang.FieldDecl); ok {
+				if f.Name == c.Name {
+					copyDecoration(&funcDec.NodeDecs, f)
+					break
+				}
+			}
+		}
+
 		mod.Decls = append(mod.Decls, &dst.FuncDecl{
-			Name: dst.NewIdent(name),
+			Name: dst.NewIdent(mod.Parent.NameGetter(name)),
+			Decs: funcDec,
 			Recv: &dst.FieldList{
 				List: []*dst.Field{
 					{
@@ -235,7 +269,8 @@ func DefineSyntheticType(layout *clang.RecordLayout, mod Module, ty TypeRef, fl 
 			},
 		})
 		mod.Decls = append(mod.Decls, &dst.FuncDecl{
-			Name: dst.NewIdent("Set" + name),
+			Name: dst.NewIdent(mod.Parent.NameSetter(name)),
+			Decs: funcDec,
 			Recv: &dst.FieldList{
 				List: []*dst.Field{
 					{
@@ -275,7 +310,7 @@ func DefineSyntheticType(layout *clang.RecordLayout, mod Module, ty TypeRef, fl 
 	}
 }
 
-func ConvertRecordNode(n *clang.RecordDecl, layouts *clang.Layouts, mod Module, deferred *deferred, vld *[]initTypeValidation) {
+func (mod Module) GenerateRecord(n *clang.RecordDecl, layouts *clang.Layouts, deferred *deferred, vld *[]initTypeValidation) {
 	var layout *clang.RecordLayout
 	var defName string
 	var qualDefName string
@@ -318,23 +353,23 @@ func ConvertRecordNode(n *clang.RecordDecl, layouts *clang.Layouts, mod Module, 
 	str := mod.AddType(tc, defName, &dst.StructType{
 		Fields: fieldList,
 	})
-	str.Rename(mod.Parent.ConvertTypeName(defName))
+	str.Rename(mod.Parent.NameType(defName))
 	if qualDefName != layout.Type {
 		mod.Parent.RemapType(layout.Type, str)
 	}
 
 	deferred.Do(func() {
-		if !DefineNaturalType(n, layout, mod, str, fieldList, vld) {
-			DefineSyntheticType(layout, mod, str, fieldList)
+		if !mod.TryGenerateNaturalRecord(n, layout, str, fieldList, vld) {
+			mod.GenerateSyntheticRecord(n, layout, str, fieldList)
 		}
 	})
 }
 
-func ConvertFunctionNode(n *clang.FunctionDecl, mod Module) {
+func (mod Module) GenerateFunction(n *clang.FunctionDecl) {
 	// Add the import.
 	// - var __imp_func = Import("func")
 	//
-	name := mod.Parent.ConvertFuncName(n.Name)
+	name := mod.Parent.NameFunc(n.Name)
 	importName := "__imp_" + name
 	mod.Decls = append(mod.Decls, &dst.GenDecl{
 		Tok: token.VAR,
@@ -396,6 +431,7 @@ func ConvertFunctionNode(n *clang.FunctionDecl, mod Module) {
 		Name: dst.NewIdent(name),
 		Type: typ,
 	}
+	copyDecoration(&decl.Decs.NodeDecs, n)
 	mod.Decls = append(mod.Decls, decl)
 	callExpr := &dst.CallExpr{
 		Fun: &dst.SelectorExpr{
@@ -406,7 +442,7 @@ func ConvertFunctionNode(n *clang.FunctionDecl, mod Module) {
 	// Add the parameters.
 	paramNodes := clang.All[*clang.ParmVarDecl](n)
 	for _, p := range paramNodes {
-		arg := mod.Parent.ConvertArgName(p.Name)
+		arg := mod.Parent.NameArg(p.Name, p.Type.QualType, n.Name)
 		typ.Params.List = append(typ.Params.List, &dst.Field{
 			Names: []*dst.Ident{dst.NewIdent(arg)},
 			Type:  mod.Parent.ConvertQualType(p.Type.QualType),
@@ -434,7 +470,7 @@ func ConvertFunctionNode(n *clang.FunctionDecl, mod Module) {
 			}
 		}
 		if idx != -1 {
-			name = mod.Parent.ConvertFuncName(mnameNew)
+			name = mod.Parent.NameFunc(mnameNew)
 			decl.Name = dst.NewIdent(name)
 			decl.Recv = &dst.FieldList{
 				List: []*dst.Field{
@@ -499,7 +535,7 @@ func ConvertFunctionNode(n *clang.FunctionDecl, mod Module) {
 	}
 }
 
-func ConvertTypedefNode(n *clang.TypedefDecl, mod Module) {
+func (mod Module) GenerateTypedef(n *clang.TypedefDecl) {
 	// Add the typedef.
 	var ty dst.Expr
 	if inner := clang.First[clang.TypeNode](n); inner != nil {
@@ -508,37 +544,37 @@ func ConvertTypedefNode(n *clang.TypedefDecl, mod Module) {
 		ty = mod.Parent.ConvertQualType(n.Type.QualType)
 	}
 	tydef := mod.AddType(TcTypedef, n.Name, ty)
-	tydef.Rename(mod.Parent.ConvertTypeName(n.Name))
-	tydef.Decl.Decs.Start.Append(n.Comments()...)
+	tydef.Rename(mod.Parent.NameType(n.Name))
+	copyDecoration(&tydef.Decl.Decs.NodeDecs, n)
 }
 
-func Convert(ast clang.Node, layouts *clang.Layouts, mod Module) {
+func (mod Module) GenerateFrom(ast clang.Node, layouts *clang.Layouts) {
 	deferred := deferred{}
 	validators := []initTypeValidation{}
 
 	// Define enums.
 	clang.Visit(ast, func(ed *clang.EnumDecl) bool {
-		ConvertEnumNode(ed, mod)
+		mod.GenerateEnum(ed)
 		return true
 	})
 
 	// Define structs and unions.
 	clang.Visit(ast, func(rd *clang.RecordDecl) bool {
 		if rd.CompleteDefinition {
-			ConvertRecordNode(rd, layouts, mod, &deferred, &validators)
+			mod.GenerateRecord(rd, layouts, &deferred, &validators)
 		}
 		return true
 	})
 
 	// Define typedefs.
 	clang.Visit(ast, func(td *clang.TypedefDecl) bool {
-		ConvertTypedefNode(td, mod)
+		mod.GenerateTypedef(td)
 		return true
 	})
 
 	// Define functions.
 	clang.Visit(ast, func(fd *clang.FunctionDecl) bool {
-		ConvertFunctionNode(fd, mod)
+		mod.GenerateFunction(fd)
 		return true
 	})
 

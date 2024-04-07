@@ -158,7 +158,7 @@ func (l *Layouts) UnmarshalString(data string) error {
 	return nil
 }
 
-func ParseLayout(data []byte) (*Layouts, error) {
+func ParseLayoutOutput(data []byte) (*Layouts, error) {
 	l := &Layouts{
 		Map: make(map[string]*RecordLayout),
 	}

@@ -68,7 +68,7 @@ type Node interface {
 	SrcRange() *SourceRange
 	Children() []Node
 	At(i int) Node
-	Comments() []string
+	Comment() string
 }
 
 func First[T Node](n Node) (res T) {
@@ -114,14 +114,14 @@ type baseNode struct {
 	Inner    []Node       `json:"inner,omitempty"`
 }
 
-func (n *baseNode) Comments() []string {
-	var wr []string
+func (n *baseNode) Comment() string {
+	builder := &strings.Builder{}
 	for _, c := range n.Inner {
 		if c, ok := c.(CommentNode); ok {
-			wr = c.AppendTo(wr)
+			c.AppendTo(builder)
 		}
 	}
-	return wr
+	return builder.String()
 }
 
 func (n *baseNode) unmarshal(rt *refTracker, data *fastjson.Value) (err error) {
@@ -321,20 +321,19 @@ type ConditionalOperator struct {
 
 type CommentNode interface {
 	Node
-	AppendTo(wr []string) []string
+	AppendTo(wr *strings.Builder)
 }
 
 type baseCommentNode struct {
 	baseNode
 }
 
-func (n *baseCommentNode) AppendTo(wr []string) []string {
+func (n *baseCommentNode) AppendTo(wr *strings.Builder) {
 	for _, c := range n.Inner {
 		if c, ok := c.(CommentNode); ok {
-			wr = c.AppendTo(wr)
+			c.AppendTo(wr)
 		}
 	}
-	return wr
 }
 
 type FullComment struct {
@@ -348,11 +347,12 @@ type TextComment struct {
 	Text string `json:"text"`
 }
 
-func (n *TextComment) AppendTo(wr []string) []string {
-	if n.Text != "" {
-		wr = append(wr, n.Text)
+func (n *TextComment) AppendTo(wr *strings.Builder) {
+	t := strings.TrimSpace(n.Text)
+	wr.WriteString(t)
+	if !strings.HasSuffix(t, "\n") {
+		wr.WriteString("\n")
 	}
-	return wr
 }
 
 type ParamCommandComment struct {
@@ -361,15 +361,42 @@ type ParamCommandComment struct {
 	Param     string `json:"param"`
 	ParamIdx  int    `json:"paramIdx"`
 }
+
+func (n *ParamCommandComment) AppendTo(wr *strings.Builder) {
+	wr.WriteString("@param ")
+	wr.WriteString(n.Param)
+	wr.WriteString(" ")
+	n.baseCommentNode.AppendTo(wr)
+}
+
 type BlockCommandComment struct {
 	baseCommentNode
 	Name string `json:"name"`
 }
+
+func (n *BlockCommandComment) AppendTo(wr *strings.Builder) {
+	wr.WriteString("@")
+	wr.WriteString(n.Name)
+	wr.WriteString(" ")
+	n.baseCommentNode.AppendTo(wr)
+}
+
 type InlineCommandComment struct {
 	baseCommentNode
 	Name       string   `json:"name"`
 	RenderKind string   `json:"renderKind"`
 	Args       []string `json:"args"`
+}
+
+func (n *InlineCommandComment) AppendTo(wr *strings.Builder) {
+	wr.WriteString("@")
+	wr.WriteString(n.Name)
+	for _, a := range n.Args {
+		wr.WriteString(" ")
+		wr.WriteString(a)
+	}
+	wr.WriteString("\n")
+	n.baseCommentNode.AppendTo(wr)
 }
 
 //
@@ -543,7 +570,7 @@ func makeUnmarshallerFor(ty reflect.Type) func(rt *refTracker, val *fastjson.Val
 			for i, v := range arr {
 				elemUnmarshal(rt, v, unsafe.Pointer(slice.Index(i).UnsafeAddr()))
 			}
-			*(*reflect.SliceHeader)(out) = *(*reflect.SliceHeader)(unsafe.Pointer(&slice))
+			reflect.NewAt(slice.Type(), out).Elem().Set(slice)
 			return nil
 		}
 	case reflect.Pointer:
@@ -633,7 +660,7 @@ func unmarshalNode(rt *refTracker, data *fastjson.Value) (Node, error) {
 		return ty(rt, data)
 	}
 }
-func ParseAST(data []byte) (node Node, err error) {
+func ParseASTOutput(data []byte) (node Node, err error) {
 	iter, err := fastjson.ParseBytes(data)
 	if err != nil {
 		return nil, err
