@@ -173,6 +173,8 @@ type Provider interface {
 	AddType(tc TypeClass, name string, decl dst.Expr) TypeRef
 	// RemapType remaps a given qualified typename to a type reference.
 	RemapType(name string, tr TypeRef)
+	// FindType resolves a type reference from a Go name.
+	FindType(name string) (TypeRef, bool)
 
 	// InferMethod returns the receiver type given the method name.
 	InferMethod(name string) (rcv string, newName string)
@@ -431,6 +433,14 @@ func (p *BaseProvider) AddType(tc TypeClass, name string, decl dst.Expr) TypeRef
 func (p *BaseProvider) RemapType(name string, tr TypeRef) {
 	name = normalizeAnonName(name)
 	p.Types[name] = tr
+}
+func (p *BaseProvider) FindType(name string) (TypeRef, bool) {
+	for _, v := range p.Types {
+		if name == v.String() {
+			return v, true
+		}
+	}
+	return TypeRef{}, false
 }
 func (p *BaseProvider) InferMethod(name string) (rcv string, newName string) {
 	for _, rule := range p.InferredMethods {

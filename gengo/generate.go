@@ -536,13 +536,36 @@ func (mod Module) GenerateFunction(n *clang.FunctionDecl) {
 }
 
 func (mod Module) GenerateTypedef(n *clang.TypedefDecl) {
-	// Add the typedef.
+	// Resolve the type.
 	var ty dst.Expr
 	if inner := clang.First[clang.TypeNode](n); inner != nil {
 		ty = mod.Parent.ConvertTypeExpr(inner)
 	} else {
 		ty = mod.Parent.ConvertQualType(n.Type.QualType)
 	}
+
+	// Check if the typedef is a simple alias.
+	if ident, ok := ty.(*dst.Ident); ok {
+		// Find the aliased type.
+		if res, ok := mod.Parent.FindType(ident.Name); ok {
+			// If there is a declaration:
+			if res.Decl != nil {
+				// If the aliased type looks like it's a dummy name for the sake of:
+				// typedef struct Name_ {} Name;
+				dummy := strings.HasSuffix(ident.Name, "_")
+				dummy = dummy || strings.HasSuffix(ident.Name, "_s")
+				dummy = dummy || strings.HasPrefix(ident.Name, "_")
+				if dummy {
+					// Rename the aliased type.
+					res.Rename(mod.Parent.NameType(n.Name))
+					mod.Parent.RemapType(n.Name, res)
+					return
+				}
+			}
+		}
+	}
+
+	// Add the typedef.
 	tydef := mod.AddType(TcTypedef, n.Name, ty)
 	tydef.Rename(mod.Parent.NameType(n.Name))
 	copyDecoration(&tydef.Decl.Decs.NodeDecs, n)
