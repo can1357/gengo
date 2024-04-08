@@ -8,7 +8,6 @@ import (
 
 	"github.com/can1357/gengo/clang"
 	"github.com/dave/dst"
-	"github.com/iancoleman/strcase"
 )
 
 type TypeRef struct {
@@ -239,6 +238,7 @@ func NewBaseProvider(opt ...BaseProviderOption) *BaseProvider {
 	}
 	return dc
 }
+
 func (p *BaseProvider) removePrefixes(name string) string {
 	for _, prefix := range p.RemovedPrefixes {
 		if len(name) > len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) {
@@ -247,7 +247,6 @@ func (p *BaseProvider) removePrefixes(name string) string {
 	}
 	return name
 }
-
 func (p *BaseProvider) NameGetter(name string) string {
 	return name
 }
@@ -255,30 +254,20 @@ func (p *BaseProvider) NameSetter(name string) string {
 	return "Set" + name
 }
 func (p *BaseProvider) NameField(name string, recordName string) string {
-	return p.NameType(name)
+	name = p.removePrefixes(name)
+	return ConvertCase(name, ConventionPascalCase)
 }
 func (p *BaseProvider) NameFunc(name string) string {
-	return p.NameType(name)
+	name = p.removePrefixes(name)
+	return ConvertCase(name, ConventionPascalCase)
 }
 func (p *BaseProvider) NameType(name string) string {
-	if strings.HasSuffix(name, "_") {
-		return p.NameType(name[:len(name)-1]) + "_"
-	}
-	if strings.HasPrefix(name, "_") {
-		return "_" + p.NameType(name[1:])
-	}
 	name = p.removePrefixes(name)
-	return strcase.ToCamel(name)
+	return ConvertCase(name, ConventionPascalCase)
 }
 func (p *BaseProvider) NameValue(name string) string {
-	if strings.HasSuffix(name, "_") {
-		return p.NameType(name[:len(name)-1]) + "_"
-	}
-	if strings.HasPrefix(name, "_") {
-		return "_" + p.NameType(name[1:])
-	}
 	name = p.removePrefixes(name)
-	return strcase.ToScreamingSnake(name)
+	return ConvertCase(name, ConventionConstCase)
 }
 func (p *BaseProvider) NameArg(name string, argType, funcName string) string {
 	if _, ok := reservedIdentifiers[name]; ok {
